@@ -1,15 +1,17 @@
 use thiserror::Error;
 
-use socketcan::Error;
-
 #[derive(Error, Debug)]
-pub struct Error {
-    #[from]
-    pub socketcan_error: socketcan::Error,
-    #[from]
-    pub std_io_error: std::io::Error,
+pub enum Error {
+    #[error("socketcan error")]
+    SocketcanError(#[from] socketcan::Error),
+    #[error("stdio error")]
+    StdioError(#[from] std::io::Error),
     #[error("invalid data arguments")]
     InvalidDataArguments,
+    #[error("invalid response header")]
+    InvalidResponseHeader,
+    #[error("invalid response arguments")]
+    InvalidResponseArguments,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
