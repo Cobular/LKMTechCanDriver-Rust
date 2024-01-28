@@ -187,13 +187,13 @@ impl MgMotor {
         Ok(())
     }
 
-    pub async fn send_arbitrary_command(&mut self, message: Commands) -> Result<()> {
+    pub async fn send_arbitrary_command(&self, message: Commands) -> Result<()> {
         let data: DataArray = message.into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    async fn send_message(&mut self, message: &[u8]) -> Result<()> {
+    async fn send_message(&self, message: &DataArray) -> Result<()> {
         let frame = CanFrame::new(self.id, message)
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Invalid frame"))
             .map_err(Error::StdioError)?;
@@ -205,50 +205,50 @@ impl MgMotor {
         Ok(())
     }
 
-    pub async fn send_motor_off(&mut self) -> Result<()> {
+    pub async fn send_motor_off(&self) -> Result<()> {
         let data: DataArray = crate::commands::MotorOffCommand::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_motor_on(&mut self) -> Result<()> {
+    pub async fn send_motor_on(&self) -> Result<()> {
         let data: DataArray = crate::commands::MotorOnCommand::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_motor_stop(&mut self) -> Result<()> {
+    pub async fn send_motor_stop(&self) -> Result<()> {
         let data: DataArray = crate::commands::MotorStopCommand::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_open_loop_control(&mut self, power: i16) -> Result<()> {
+    pub async fn send_open_loop_control(&self, power: i16) -> Result<()> {
         let data: DataArray = crate::commands::OpenLoopControl::new(power)?.into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_torque_closed_loop_control(&mut self, iq: i16) -> Result<()> {
+    pub async fn send_torque_closed_loop_control(&self, iq: i16) -> Result<()> {
         let data: DataArray = crate::commands::TorqueClosedLoopControlCommand::new(iq)?.into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_speed_closed_loop_control(&mut self, speed: i32) -> Result<()> {
+    pub async fn send_speed_closed_loop_control(&self, speed: i32) -> Result<()> {
         let data: DataArray = crate::commands::SpeedClosedLoopControlCommand::new(speed)?.into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_absolute_angle_control(&mut self, angle: i32) -> Result<()> {
+    pub async fn send_absolute_angle_control(&self, angle: i32) -> Result<()> {
         let data: DataArray = crate::commands::AbsoluteAngleControl::new(angle).into();
         self.send_message(&data).await?;
         Ok(())
     }
 
     pub async fn send_absolute_angle_control_with_speed_limit(
-        &mut self,
+        &self,
         angle: i32,
         max_speed: u16,
     ) -> Result<()> {
@@ -258,14 +258,14 @@ impl MgMotor {
         Ok(())
     }
 
-    pub async fn send_relative_angle_control(&mut self, direction: u8, angle: i32) -> Result<()> {
+    pub async fn send_relative_angle_control(&self, direction: u8, angle: i32) -> Result<()> {
         let data: DataArray = crate::commands::RelativeAngleControl::new(direction, angle).into();
         self.send_message(&data).await?;
         Ok(())
     }
 
     pub async fn send_relative_angle_control_with_speed_limit(
-        &mut self,
+        &self,
         direction: u8,
         angle: i32,
         max_speed: u16,
@@ -277,14 +277,14 @@ impl MgMotor {
         Ok(())
     }
 
-    pub async fn send_increment_angle_control(&mut self, angle_increment: i32) -> Result<()> {
+    pub async fn send_increment_angle_control(&self, angle_increment: i32) -> Result<()> {
         let data: DataArray = crate::commands::IncrementAngleControl1::new(angle_increment).into();
         self.send_message(&data).await?;
         Ok(())
     }
 
     pub async fn send_increment_angle_control_speedlimit(
-        &mut self,
+        &self,
         angle_increment: i32,
         max_speed: u16,
     ) -> Result<()> {
@@ -294,14 +294,14 @@ impl MgMotor {
         Ok(())
     }
 
-    pub async fn send_read_pid_parameter(&mut self) -> Result<()> {
+    pub async fn send_read_pid_parameter(&self) -> Result<()> {
         let data: DataArray = crate::commands::ReadPIDParameter::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
     pub async fn send_write_pid_params_to_ram(
-        &mut self,
+        &self,
         params: crate::commands::WritePIDParamsToRAM,
     ) -> Result<()> {
         let data: DataArray = params.into();
@@ -310,7 +310,7 @@ impl MgMotor {
     }
 
     pub async fn send_write_pid_params_to_rom(
-        &mut self,
+        &self,
         params: crate::commands::WritePIDParamsToROM,
     ) -> Result<()> {
         let data: DataArray = params.into();
@@ -318,73 +318,73 @@ impl MgMotor {
         Ok(())
     }
 
-    pub async fn send_read_acceleration(&mut self) -> Result<()> {
+    pub async fn send_read_acceleration(&self) -> Result<()> {
         let data: DataArray = crate::commands::ReadAcceleration::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_write_acceleration_to_ram(&mut self, accel: i32) -> Result<()> {
+    pub async fn send_write_acceleration_to_ram(&self, accel: i32) -> Result<()> {
         let data: DataArray = crate::commands::WriteAccelerationToRAM::new(accel).into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_read_encoder(&mut self) -> Result<()> {
+    pub async fn send_read_encoder(&self) -> Result<()> {
         let data: DataArray = crate::commands::ReadEncoder::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_write_encoder_val_to_rom(&mut self, offset: u16) -> Result<()> {
+    pub async fn send_write_encoder_val_to_rom(&self, offset: u16) -> Result<()> {
         let data: DataArray = crate::commands::WriteEncoderValToROM::new(offset).into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_write_current_position_to_rom(&mut self) -> Result<()> {
+    pub async fn send_write_current_position_to_rom(&self) -> Result<()> {
         let data: DataArray = crate::commands::WriteCurrentPositionToROM::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_read_multi_angle_loop(&mut self) -> Result<()> {
+    pub async fn send_read_multi_angle_loop(&self) -> Result<()> {
         let data: DataArray = crate::commands::ReadMultiAngleLoop::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_read_single_angle_loop(&mut self) -> Result<()> {
+    pub async fn send_read_single_angle_loop(&self) -> Result<()> {
         let data: DataArray = crate::commands::ReadSingleAngleLoop::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_clear_motor_angle_loop(&mut self) -> Result<()> {
+    pub async fn send_clear_motor_angle_loop(&self) -> Result<()> {
         let data: DataArray = crate::commands::ClearMotorAngleLoop::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_read_motor_state1_and_error_state(&mut self) -> Result<()> {
+    pub async fn send_read_motor_state1_and_error_state(&self) -> Result<()> {
         let data: DataArray = crate::commands::ReadMotorState1AndErrorState::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_clear_motor_error_state(&mut self) -> Result<()> {
+    pub async fn send_clear_motor_error_state(&self) -> Result<()> {
         let data: DataArray = crate::commands::ClearMotorErrorState::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_read_motor_state2(&mut self) -> Result<()> {
+    pub async fn send_read_motor_state2(&self) -> Result<()> {
         let data: DataArray = crate::commands::ReadMotorState2::default().into();
         self.send_message(&data).await?;
         Ok(())
     }
 
-    pub async fn send_read_motor_state3(&mut self) -> Result<()> {
+    pub async fn send_read_motor_state3(&self) -> Result<()> {
         let data: DataArray = crate::commands::ReadMotorState3::default().into();
         self.send_message(&data).await?;
         Ok(())
