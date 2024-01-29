@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 pub type DataArray = [u8; 8];
 
@@ -11,7 +11,11 @@ pub enum Commands {
     OpenLoopControl(OpenLoopControl),
     TorqueClosedLoopControl(TorqueClosedLoopControlCommand),
     SpeedClosedLoopControl(SpeedClosedLoopControlCommand),
-    
+    MultiAngleControl(MultiAngleControl),
+    MultiAngleControlSpeedLimit(MultiAngleControlSpeedLimit),
+    SingleAngleControl(SingleAngleControl),
+    SingleAngleControlSpeedLimit(SingleAngleControlSpeedLimit),
+
     // Get data out
     ReadSingleAngleLoop(ReadSingleAngleLoop),
     ClearMotorAngleLoop(ClearMotorAngleLoop),
@@ -30,6 +34,11 @@ impl From<Commands> for DataArray {
             Commands::OpenLoopControl(val) => val.into(),
             Commands::TorqueClosedLoopControl(val) => val.into(),
             Commands::SpeedClosedLoopControl(val) => val.into(),
+            Commands::MultiAngleControl(val) => val.into(),
+            Commands::MultiAngleControlSpeedLimit(val) => val.into(),
+            Commands::SingleAngleControl(val) => val.into(),
+            Commands::SingleAngleControlSpeedLimit(val) => val.into(),
+
             Commands::ReadSingleAngleLoop(val) => val.into(),
             Commands::ClearMotorAngleLoop(val) => val.into(),
             Commands::ReadMotorState1AndErrorState(val) => val.into(),
@@ -77,7 +86,7 @@ impl OpenLoopControl {
         // Power control should be in range -850 to 850
         if power_control.abs() > 850 {
             return Err(Error::InvalidDataArguments);
-       }
+        }
 
         Ok(Self { power_control })
     }
@@ -103,7 +112,7 @@ impl TorqueClosedLoopControlCommand {
         // iq_control should be in range -2048 to 2048
         if !(-2048..=2048).contains(&iq_control) {
             return Err(Error::InvalidDataArguments);
-       }
+        }
 
         Ok(Self { iq_control })
     }
@@ -130,7 +139,6 @@ impl SpeedClosedLoopControlCommand {
     }
 }
 
-
 impl From<SpeedClosedLoopControlCommand> for DataArray {
     fn from(val: SpeedClosedLoopControlCommand) -> Self {
         let mut arr: DataArray = [0; 8];
@@ -144,17 +152,18 @@ impl From<SpeedClosedLoopControlCommand> for DataArray {
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub struct AbsoluteAngleControl {
+pub struct MultiAngleControl {
     angle_control: i32,
 }
 
-impl AbsoluteAngleControl {
-    pub fn new(angle_control: i32) -> Self { Self { angle_control } }
+impl MultiAngleControl {
+    pub fn new(angle_control: i32) -> Self {
+        Self { angle_control }
+    }
 }
 
-
-impl From<AbsoluteAngleControl> for DataArray {
-    fn from(val: AbsoluteAngleControl) -> Self {
+impl From<MultiAngleControl> for DataArray {
+    fn from(val: MultiAngleControl) -> Self {
         let mut arr: DataArray = [0; 8];
         arr[0] = 0xA3; // Command byte for Absolute Angle Control
         arr[4] = val.angle_control as u8; // Byte 0
@@ -166,17 +175,22 @@ impl From<AbsoluteAngleControl> for DataArray {
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub struct AbsoluteAngleControlSpeedLimit {
+pub struct MultiAngleControlSpeedLimit {
     angle_control: i32,
     max_speed: u16,
 }
 
-impl AbsoluteAngleControlSpeedLimit {
-    pub fn new(angle_control: i32, max_speed: u16) -> Self { Self { angle_control, max_speed } }
+impl MultiAngleControlSpeedLimit {
+    pub fn new(angle_control: i32, max_speed: u16) -> Self {
+        Self {
+            angle_control,
+            max_speed,
+        }
+    }
 }
 
-impl From<AbsoluteAngleControlSpeedLimit> for DataArray {
-    fn from(val: AbsoluteAngleControlSpeedLimit) -> Self {
+impl From<MultiAngleControlSpeedLimit> for DataArray {
+    fn from(val: MultiAngleControlSpeedLimit) -> Self {
         let mut arr: DataArray = [0; 8];
         arr[0] = 0xA4; // Command byte for Absolute Angle Control Speed Limit
         arr[2] = val.max_speed as u8; // Max speed low byte
@@ -189,21 +203,51 @@ impl From<AbsoluteAngleControlSpeedLimit> for DataArray {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+#[repr(u8)]
+pub enum Direction {
+    Clockwise = 0x00,
+    CounterClockwise = 0x01,
+}
+
+impl TryFrom<u8> for Direction {
+    type Error = Error;
+
+    fn try_from(val: u8) -> Result<Self> {
+        match val {
+            0x00 => Ok(Direction::Clockwise),
+            0x01 => Ok(Direction::CounterClockwise),
+            _ => Err(Error::InvalidDataArguments),
+        }
+    }
+}
+
+impl Default for Direction {
+    fn default() -> Self {
+        Direction::Clockwise
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub struct RelativeAngleControl {
-    spin_direction: u8,
+pub struct SingleAngleControl {
+    spin_direction: Direction,
     angle_control: i32,
 }
 
-impl RelativeAngleControl {
-    pub fn new(spin_direction: u8, angle_control: i32) -> Self { Self { spin_direction, angle_control } }
+impl SingleAngleControl {
+    pub fn new(spin_direction: Direction, angle_control: i32) -> Self {
+        Self {
+            spin_direction,
+            angle_control,
+        }
+    }
 }
 
-impl From<RelativeAngleControl> for DataArray {
-    fn from(val: RelativeAngleControl) -> Self {
+impl From<SingleAngleControl> for DataArray {
+    fn from(val: SingleAngleControl) -> Self {
         let mut arr: DataArray = [0; 8];
         arr[0] = 0xA5; // Command byte for Relative Angle Control
-        arr[1] = val.spin_direction; // Spin direction byte
+        arr[1] = val.spin_direction as u8; // Spin direction byte
         arr[2] = val.angle_control as u8; // Byte 0
         arr[3] = (val.angle_control >> 8) as u8; // Byte 1
         arr[4] = (val.angle_control >> 16) as u8; // Byte 2
@@ -213,21 +257,27 @@ impl From<RelativeAngleControl> for DataArray {
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub struct RelativeAngleControlSpeedLimit {
-    spin_direction: u8,
+pub struct SingleAngleControlSpeedLimit {
+    spin_direction: Direction,
     angle_control: i32,
     max_speed: u16,
 }
 
-impl RelativeAngleControlSpeedLimit {
-    pub fn new(spin_direction: u8, angle_control: i32, max_speed: u16) -> Self { Self { spin_direction, angle_control, max_speed } }
+impl SingleAngleControlSpeedLimit {
+    pub fn new(spin_direction: Direction, angle_control: i32, max_speed: u16) -> Self {
+        Self {
+            spin_direction,
+            angle_control,
+            max_speed,
+        }
+    }
 }
 
-impl From<RelativeAngleControlSpeedLimit> for DataArray {
-    fn from(val: RelativeAngleControlSpeedLimit) -> Self {
+impl From<SingleAngleControlSpeedLimit> for DataArray {
+    fn from(val: SingleAngleControlSpeedLimit) -> Self {
         let mut arr: DataArray = [0; 8];
         arr[0] = 0xA6; // Command byte for Relative Angle Control Speed Limit
-        arr[1] = val.spin_direction; // Spin direction byte
+        arr[1] = val.spin_direction as u8; // Spin direction byte
         arr[2] = val.max_speed as u8; // Max speed low byte
         arr[3] = (val.max_speed >> 8) as u8; // Max speed high byte
         arr[4] = val.angle_control as u8; // Byte 0
@@ -268,7 +318,12 @@ pub struct IncrementAngleControl2 {
 }
 
 impl IncrementAngleControl2 {
-    pub fn new(angle_increment: i32, max_speed: u16) -> Self { Self { angle_increment, max_speed } }
+    pub fn new(angle_increment: i32, max_speed: u16) -> Self {
+        Self {
+            angle_increment,
+            max_speed,
+        }
+    }
 }
 
 impl From<IncrementAngleControl2> for DataArray {
@@ -289,7 +344,9 @@ impl From<IncrementAngleControl2> for DataArray {
 pub struct ReadPIDParameter {}
 
 impl ReadPIDParameter {
-    pub fn new() -> Self { Self {  } }
+    pub fn new() -> Self {
+        Self {}
+    }
 }
 
 impl From<ReadPIDParameter> for DataArray {
@@ -309,7 +366,23 @@ pub struct WritePIDParamsToRAM {
 }
 
 impl WritePIDParamsToRAM {
-    pub fn new(angle_pid_kp: u8, angle_pid_ki: u8, speed_pid_kp: u8, speed_pid_ki: u8, iq_pid_kp: u8, iq_pid_ki: u8) -> Self { Self { angle_pid_kp, angle_pid_ki, speed_pid_kp, speed_pid_ki, iq_pid_kp, iq_pid_ki } }
+    pub fn new(
+        angle_pid_kp: u8,
+        angle_pid_ki: u8,
+        speed_pid_kp: u8,
+        speed_pid_ki: u8,
+        iq_pid_kp: u8,
+        iq_pid_ki: u8,
+    ) -> Self {
+        Self {
+            angle_pid_kp,
+            angle_pid_ki,
+            speed_pid_kp,
+            speed_pid_ki,
+            iq_pid_kp,
+            iq_pid_ki,
+        }
+    }
 }
 
 impl From<WritePIDParamsToRAM> for DataArray {
@@ -337,7 +410,23 @@ pub struct WritePIDParamsToROM {
 }
 
 impl WritePIDParamsToROM {
-    pub fn new(angle_pid_kp: u8, angle_pid_ki: u8, speed_pid_kp: u8, speed_pid_ki: u8, iq_pid_kp: u8, iq_pid_ki: u8) -> Self { Self { angle_pid_kp, angle_pid_ki, speed_pid_kp, speed_pid_ki, iq_pid_kp, iq_pid_ki } }
+    pub fn new(
+        angle_pid_kp: u8,
+        angle_pid_ki: u8,
+        speed_pid_kp: u8,
+        speed_pid_ki: u8,
+        iq_pid_kp: u8,
+        iq_pid_ki: u8,
+    ) -> Self {
+        Self {
+            angle_pid_kp,
+            angle_pid_ki,
+            speed_pid_kp,
+            speed_pid_ki,
+            iq_pid_kp,
+            iq_pid_ki,
+        }
+    }
 }
 
 impl From<WritePIDParamsToROM> for DataArray {
@@ -369,7 +458,9 @@ pub struct WriteAccelerationToRAM {
 }
 
 impl WriteAccelerationToRAM {
-    pub fn new(accel: i32) -> Self { Self { accel } }
+    pub fn new(accel: i32) -> Self {
+        Self { accel }
+    }
 }
 
 impl From<WriteAccelerationToRAM> for DataArray {
@@ -399,7 +490,9 @@ pub struct WriteEncoderValToROM {
 }
 
 impl WriteEncoderValToROM {
-    pub fn new(encoder_offset: u16) -> Self { Self { encoder_offset } }
+    pub fn new(encoder_offset: u16) -> Self {
+        Self { encoder_offset }
+    }
 }
 
 impl From<WriteEncoderValToROM> for DataArray {

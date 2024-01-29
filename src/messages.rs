@@ -20,17 +20,17 @@ impl std::convert::TryFrom<&[u8; 8]> for OpenLoopResponse {
     fn try_from(value: &[u8; 8]) -> Result<Self, Self::Error> {
         Ok(OpenLoopResponse {
             motor_temp: value[1],
-            output_power: u16::from_be_bytes(
+            output_power: u16::from_le_bytes(
                 value[2..4]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
             ),
-            speed: u16::from_be_bytes(
+            speed: u16::from_le_bytes(
                 value[4..6]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
             ),
-            encoder_position: u16::from_be_bytes(
+            encoder_position: u16::from_le_bytes(
                 value[6..8]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
@@ -52,18 +52,18 @@ impl std::convert::TryFrom<&[u8; 8]> for ClosedLoopResponse {
 
     fn try_from(value: &[u8; 8]) -> Result<Self, Self::Error> {
         Ok(ClosedLoopResponse {
-            motor_temp: u8::from_be_bytes([value[1]]),
-            torque_current_iq: i16::from_be_bytes(
+            motor_temp: u8::from_le_bytes([value[1]]),
+            torque_current_iq: i16::from_le_bytes(
                 value[2..4]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
             ),
-            speed: i16::from_be_bytes(
+            speed: i16::from_le_bytes(
                 value[4..6]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
             ),
-            encoder_position: u16::from_be_bytes(
+            encoder_position: u16::from_le_bytes(
                 value[6..8]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
@@ -117,17 +117,17 @@ impl std::convert::TryFrom<&[u8; 8]> for ReadEncoderResponse {
 
     fn try_from(value: &[u8; 8]) -> Result<Self, Self::Error> {
         Ok(ReadEncoderResponse {
-            encoder: u16::from_be_bytes(
+            encoder: u16::from_le_bytes(
                 value[1..3]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
             ),
-            encoder_raw: u16::from_be_bytes(
+            encoder_raw: u16::from_le_bytes(
                 value[3..5]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
             ),
-            encoder_offset: u16::from_be_bytes(
+            encoder_offset: u16::from_le_bytes(
                 value[5..7]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
@@ -172,7 +172,7 @@ impl std::convert::TryFrom<&[u8; 8]> for ReadState1Response {
     fn try_from(value: &[u8; 8]) -> Result<Self, Self::Error> {
         Ok(ReadState1Response {
             temp: value[1],
-            voltage: u16::from_be_bytes(
+            voltage: u16::from_le_bytes(
                 value[3..5]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
@@ -184,7 +184,7 @@ impl std::convert::TryFrom<&[u8; 8]> for ReadState1Response {
 
 #[derive(Serialize)]
 pub struct ReadState3Response {
-    temperature: i8,
+    temperature: u8,
     pub a_phase_current: i16,
     pub b_phase_current: i16,
     pub c_phase_current: i16,
@@ -195,18 +195,18 @@ impl std::convert::TryFrom<&[u8; 8]> for ReadState3Response {
 
     fn try_from(value: &[u8; 8]) -> Result<Self, Self::Error> {
         Ok(ReadState3Response {
-            temperature: value[1] as i8,
-            a_phase_current: i16::from_be_bytes(
+            temperature: value[1],
+            a_phase_current: i16::from_le_bytes(
                 value[2..4]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
             ),
-            b_phase_current: i16::from_be_bytes(
+            b_phase_current: i16::from_le_bytes(
                 value[4..6]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
             ),
-            c_phase_current: i16::from_be_bytes(
+            c_phase_current: i16::from_le_bytes(
                 value[6..8]
                     .try_into()
                     .map_err(|_e| Error::InvalidResponseArguments)?,
@@ -216,6 +216,28 @@ impl std::convert::TryFrom<&[u8; 8]> for ReadState3Response {
 }
 
 #[derive(Serialize)]
+pub struct MultiAngleResponse {
+    pub angle: i64,
+}
+
+impl std::convert::TryFrom<&[u8; 8]> for MultiAngleResponse {
+    type Error = crate::error::Error;
+
+    fn try_from(value: &[u8; 8]) -> Result<Self, Self::Error> {
+        // Construct the angle from the bytes, considering little-endian order
+        let angle = i64::from_le_bytes([
+            value[1], value[2], value[3], value[4], value[5], value[6], value[7], 
+            // Sign-extend the 7th byte to the 8th byte of i64
+            if value[7] & 0x80 == 0x80 { 0xFF } else { 0x00 },
+        ]);
+
+        Ok(MultiAngleResponse { angle })
+
+    }
+}
+
+
+#[derive(Serialize)]
 pub enum Response {
     MotorOff(MotorOffResponse),
     MotorOn(MotorOnResponse),
@@ -223,6 +245,7 @@ pub enum Response {
     OpenLoop(OpenLoopResponse),
     TorqueClosedLoop(ClosedLoopResponse),
     ReadEncoder(ReadEncoderResponse),
+    MultiAngle(MultiAngleResponse),
     ReadState1(ReadState1Response),
     ReadState3(ReadState3Response),
 }
@@ -233,7 +256,7 @@ impl Response {
             Response::OpenLoop(data) => Some(data.motor_temp),
             Response::TorqueClosedLoop(data) => Some(data.motor_temp),
             Response::ReadState1(data) => Some(data.temp),
-            Response::ReadState3(data) => Some(data.temperature as u8),
+            Response::ReadState3(data) => Some(data.temperature),
             _ => None,
         }
     }
@@ -250,6 +273,7 @@ impl std::convert::TryFrom<&[u8; 8]> for Response {
             0xA0 => Ok(Response::OpenLoop(value.try_into()?)),
             0xA1..=0xA8 | 0x9C => Ok(Response::TorqueClosedLoop(value.try_into()?)),
             0x90 => Ok(Response::ReadEncoder(value.try_into()?)),
+            0x92 => Ok(Response::MultiAngle(value.try_into()?)),
             0x9A => Ok(Response::ReadState1(value.try_into()?)),
             0x9D => Ok(Response::ReadState3(value.try_into()?)),
             _ => Err(crate::error::Error::InvalidResponseHeader),
