@@ -72,6 +72,7 @@ impl MotorData {
     }
 }
 
+#[derive(Debug)]
 pub struct MgMotor {
     socket: CanSocket,
     id: Id,
@@ -165,8 +166,9 @@ impl MgMotor {
                                 _ => (),
                             }
 
-                            if tx.send(motor_data).is_err() {
-                                println!("Error sending message")
+                            match tx.send(motor_data) {
+                                Ok(_) => (),
+                                Err(e) => println!("Error sending message: {:?}", e),
                             }
                         } else {
                             println!("Invalid message: {:?}", data);
@@ -274,7 +276,13 @@ impl MgMotor {
     ///
     /// WARNING: DANGEROUS! This can easily cause runaway speeds if not controlled carefully.
     /// Be ready with an estop and maybe set a software estop based on motor speed!
-    pub async fn send_torque_closed_loop_control(&self, iq: i16) -> Result<()> {
+    /// 
+    /// Input is amps, where 1.0 corresponds to 33A.
+    /// 
+    pub async fn send_torque_closed_loop_control(&self, iq: f32) -> Result<()> {
+        /// Motor torque current value iq,int16_t, range is -2048~2048, motor actual torque current range is-33A~33A.
+        let iq = (iq / 33.0 * 2048.0) as i16;
+
         let data: DataArray = crate::commands::TorqueClosedLoopControlCommand::new(iq)?.into();
         self.send_message(&data).await?;
         Ok(())
