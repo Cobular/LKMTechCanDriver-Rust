@@ -280,7 +280,7 @@ impl MgMotor {
     /// Input is amps, where 1.0 corresponds to 33A.
     /// 
     pub async fn send_torque_closed_loop_control(&self, iq: f32) -> Result<()> {
-        /// Motor torque current value iq,int16_t, range is -2048~2048, motor actual torque current range is-33A~33A.
+        // Motor torque current value iq,int16_t, range is -2048~2048, motor actual torque current range is-33A~33A.
         let iq = (iq / 33.0 * 2048.0) as i16;
 
         let data: DataArray = crate::commands::TorqueClosedLoopControlCommand::new(iq)?.into();
