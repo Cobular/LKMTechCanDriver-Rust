@@ -226,16 +226,20 @@ impl std::convert::TryFrom<&[u8; 8]> for MultiAngleResponse {
     fn try_from(value: &[u8; 8]) -> Result<Self, Self::Error> {
         // Construct the angle from the bytes, considering little-endian order
         let angle = i64::from_le_bytes([
-            value[1], value[2], value[3], value[4], value[5], value[6], value[7], 
+            value[1],
+            value[2],
+            value[3],
+            value[4],
+            value[5],
+            value[6],
+            value[7],
             // Sign-extend the 7th byte to the 8th byte of i64
             if value[7] & 0x80 == 0x80 { 0xFF } else { 0x00 },
         ]);
 
         Ok(MultiAngleResponse { angle })
-
     }
 }
-
 
 #[derive(Serialize)]
 pub enum Response {

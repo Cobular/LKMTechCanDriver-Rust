@@ -1,13 +1,13 @@
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
-use tokio::fs::File;
-
-use tokio::io::{self, AsyncWriteExt, BufWriter, AsyncBufReadExt};
-use tokio::sync::RwLock;
-use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio_stream::wrappers::LinesStream;
-
-use futures::stream::StreamExt;
+use std::fs::File;
+use std::io::{self, BufRead, BufWriter, Write};
+use std::sync::mpsc::TryRecvError;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::RwLock;
+use thread_priority::*;
 
 use lkmtech_motor_driver::{MgMotor, MotorData};
 use pid::Pid;
@@ -20,12 +20,15 @@ const VEL_P_GAIN: f32 = 0.08;
 const VEL_I_GAIN: f32 = 0.005;
 const VEL_D_GAIN: f32 = 0.15;
 
-const LOOP_HZ: f32 = 100.0;
+const LOOP_HZ: f32 = 500.0;
 
 const POST_SCALER: f32 = 2.0;
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    assert!(set_current_thread_priority(ThreadPriority::Max).is_ok());
+
+    println!("Basic Motor PID Starting with params: Ppos: {}, Ipos: {}, Dpos: {}, Pvel: {}, Ivel: {}, Dvel: {}", POS_P_GAIN, POS_I_GAIN, POS_D_GAIN, VEL_P_GAIN, VEL_I_GAIN, VEL_D_GAIN);
+
     let mut position_controller: Pid<f32> = Pid::new(0.0, 100.0);
     position_controller.p(POS_P_GAIN / POST_SCALER, 100.0);
     position_controller.i(POS_I_GAIN / POST_SCALER, 3.0);
@@ -38,41 +41,40 @@ async fn main() {
 
     let motor = MgMotor::new("can0", 0x2, 10).unwrap();
 
-    let motor_data = Arc::new(RwLock::new(MotorData::new(10)));
+    let motor_data = Arc::new(RwLock::new(MotorData::new_initalized(10)));
 
-    let mut reciever = motor.subscribe().unwrap();
+    let reciever = motor.subscribe();
     let motor_data2 = motor_data.clone();
-    tokio::spawn(async move {
+    std::thread::spawn(move || {
         let motor_data = motor_data2;
         loop {
-            let data = reciever.recv().await.unwrap();
-            let mut motor_data = motor_data.write().await;
-            motor_data.update(data);
+            let data = reciever.recv().unwrap();
+            let motor_data = motor_data.write();
+            motor_data
+                .expect("Motor data write to be successful")
+                .update(data);
             // println!("{:?}, {:?}", motor_data.angle_deg(), motor_data.speed_dps());
         }
     });
 
-    motor.send_read_motor_state2().await.unwrap();
-    motor.refresh().await.unwrap();
-
+    motor.send_read_motor_state2().unwrap();
+    motor.refresh().unwrap();
 
     // Open a file in write mode, this will create the file if it does not exist, or truncate it if it does.
-    let file = File::create("motor_data.csv").await.unwrap();
+    let file = File::create("/mnt/ramdisk/motor_data.csv").unwrap();
     let mut writer = BufWriter::new(file);
     // Write the CSV headers
-    writer.write_all(b"Time,Position,Velocity,Position Error,Velocity Setpoint,Velocity Error,Target Torque,Target Pos\n").await.unwrap();
-
+    writer.write_all(b"Time,Position,Velocity,Position Error,Velocity Setpoint,Velocity Error,Target Torque,Target Pos\n").unwrap();
 
     // Set up mpsc channel for stdin input
-    let (tx, mut rx): (Sender<String>, Receiver<String>) = mpsc::channel(100);
+    let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
     // Spawn a task to read from stdin and send to the channel
-    tokio::spawn(async move {
-        let lines = io::BufReader::new(io::stdin()).lines();
-        let mut lines_stream = LinesStream::new(lines);
-        while let Some(line) = lines_stream.next().await {
+    std::thread::spawn(move || {
+        let mut lines = io::BufReader::new(io::stdin()).lines();
+        while let Some(line) = lines.next() {
             if let Ok(line) = line {
-                if let Err(e) = tx.send(line).await {
+                if let Err(e) = tx.send(line) {
                     eprintln!("Failed to send line: {}", e);
                     break;
                 }
@@ -80,21 +82,27 @@ async fn main() {
         }
     });
 
-    // Sleep for 10 seconds to let the motor data update
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    // Sleep for 5 seconds to let the motor data update
+    thread::sleep(Duration::from_secs(5));
 
     let mut target_position = 270.0;
 
-    let _reciever = motor.subscribe().unwrap();
+    let _reciever = motor.subscribe();
 
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs_f32(1.0 / LOOP_HZ));
-
-    let start_time = tokio::time::Instant::now();
-
+    let start_time = Instant::now();
     let mut iters = 0;
+    let mut last_tick = start_time;
 
     loop {
-        interval.tick().await;
+        let next_tick = last_tick + Duration::from_secs_f32(1.0 / LOOP_HZ);
+        let now = Instant::now();
+        if now < next_tick {
+            // Sleep until the next tick
+            println!("Sleeping for: {:?}", next_tick - now);
+            thread::sleep(next_tick - now);
+            println!("Waking up");
+        }
+        last_tick = next_tick;
 
         // Non-blocking check for newline input from stdin
         match rx.try_recv() {
@@ -106,12 +114,12 @@ async fn main() {
                     println!("Setting target position to: {}", target_position);
                 } else {
                     println!("Safing the motor");
-                    motor.send_torque_closed_loop_control(0.0).await.unwrap();
+                    motor.send_torque_closed_loop_control(0.0).unwrap();
                     break; // Exit the loop if "exit" command is received
-                }                
-            },
+                }
+            }
             Err(e) => {
-                if e != mpsc::error::TryRecvError::Empty {
+                if e != TryRecvError::Empty {
                     eprintln!("Channel receive error: {}", e);
                     break;
                 }
@@ -121,7 +129,7 @@ async fn main() {
 
         let elapsed = start_time.elapsed().as_secs_f32();
 
-        let motor_data = motor_data.read().await.to_owned();
+        let motor_data = motor_data.read().unwrap().to_owned();
 
         let position = motor_data.angle_deg().unwrap() as f32;
         let velocity = motor_data.speed_dps().unwrap() as f32;
@@ -139,15 +147,43 @@ async fn main() {
         let velocity_error = (-1.0 * velocity_setpoint.output) - velocity;
         let torque_setpoint = velocity_controller.next_control_output(velocity_error);
 
-        // println!("Target torque: {}", torque_setpoint.output);
+        println!("{}", elapsed);
 
         // Write the data to the CSV file
-        let data = format!("{},{},{},{},{},{},{},{}\n", elapsed, position, velocity, position_error, velocity_setpoint.output, velocity_error, torque_setpoint.output, target_position);
-        writer.write_all(data.as_bytes()).await.unwrap();
+        let data = format!(
+            "{},{},{},{},{},{},{},{}\n",
+            elapsed,
+            position,
+            velocity,
+            position_error,
+            velocity_setpoint.output,
+            velocity_error,
+            torque_setpoint.output,
+            target_position
+        );
+        writer.write_all(data.as_bytes()).unwrap();
 
         // It was going the wrong way :C
-        motor.send_torque_closed_loop_control(-1.0 * torque_setpoint.output).await.unwrap();
+        motor
+            .send_torque_closed_loop_control(-1.0 * torque_setpoint.output)
+            .unwrap();
 
-        motor.refresh().await.unwrap();
+        println!("Sent torque command");
+
+        motor.refresh().unwrap();
+
+        println!("Refreshed");
     }
+
+    // loop {
+    //     // Calculate the next tick time
+    //     let next_tick = last_tick + Duration::from_secs_f32(1.0 / LOOP_HZ);
+    //     let now = Instant::now();
+    //     if now < next_tick {
+    //         // Sleep until the next tick
+    //         thread::sleep(next_tick - now);
+    //     }
+    //     last_tick = next_tick;
+
+    // }
 }
