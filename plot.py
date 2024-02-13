@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load the data
-data = np.genfromtxt('motor_data.csv', delimiter=',', skip_header=1)
+data = np.genfromtxt('./motor_data_2.csv', delimiter=',', skip_header=1)
 
 # Extract columns
 time = data[:, 0]

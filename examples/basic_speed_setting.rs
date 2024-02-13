@@ -14,7 +14,6 @@ async fn main() -> io::Result<()> {
         let speed: i32 = line?.trim().parse().expect("Failed to parse speed");
         motor
             .send_speed_closed_loop_control(speed as f32)
-            .await
             .unwrap();
     }
 

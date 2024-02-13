@@ -2,7 +2,7 @@ import numpy as np
 
 # filename = "high_priority_perf_governor.txt"
 # filename = "higher_freq.txt"
-filename = "std_sleep.txt"
+filename = "std_sleep_2.txt"
 
 
 # Load the timestamps from the file

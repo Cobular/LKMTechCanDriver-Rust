@@ -3,10 +3,10 @@ use serde::Serialize;
 use crate::error::Error;
 use std::convert::TryInto;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct EmptyResponse {}
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct OpenLoopResponse {
     motor_temp: u8,        // degree C
     output_power: u16,     // -850 to 850
@@ -39,7 +39,7 @@ impl std::convert::TryFrom<&[u8; 8]> for OpenLoopResponse {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ClosedLoopResponse {
     pub motor_temp: u8,         // degree C, 1°C/LSB
     pub torque_current_iq: i16, // range is -2048~2048
@@ -72,7 +72,7 @@ impl std::convert::TryFrom<&[u8; 8]> for ClosedLoopResponse {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct MotorOffResponse(EmptyResponse);
 
 impl std::convert::TryFrom<&[u8; 8]> for MotorOffResponse {
@@ -83,7 +83,7 @@ impl std::convert::TryFrom<&[u8; 8]> for MotorOffResponse {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct MotorOnResponse(EmptyResponse);
 
 impl std::convert::TryFrom<&[u8; 8]> for MotorOnResponse {
@@ -94,7 +94,7 @@ impl std::convert::TryFrom<&[u8; 8]> for MotorOnResponse {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct MotorStopResponse(EmptyResponse);
 
 impl std::convert::TryFrom<&[u8; 8]> for MotorStopResponse {
@@ -105,7 +105,7 @@ impl std::convert::TryFrom<&[u8; 8]> for MotorStopResponse {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ReadEncoderResponse {
     pub encoder: u16,
     encoder_raw: u16,
@@ -136,7 +136,7 @@ impl std::convert::TryFrom<&[u8; 8]> for ReadEncoderResponse {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[repr(u8)]
 pub enum ErrorState {
     VoltageNormal = 0,
@@ -159,7 +159,7 @@ impl std::convert::TryFrom<u8> for ErrorState {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ReadState1Response {
     temp: u8,
     pub voltage: u16,
@@ -182,7 +182,7 @@ impl std::convert::TryFrom<&[u8; 8]> for ReadState1Response {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ReadState3Response {
     temperature: u8,
     pub a_phase_current: i16,
@@ -215,7 +215,7 @@ impl std::convert::TryFrom<&[u8; 8]> for ReadState3Response {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct MultiAngleResponse {
     pub angle: i64,
 }
@@ -241,7 +241,7 @@ impl std::convert::TryFrom<&[u8; 8]> for MultiAngleResponse {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub enum Response {
     MotorOff(MotorOffResponse),
     MotorOn(MotorOnResponse),
@@ -270,6 +270,11 @@ impl std::convert::TryFrom<&[u8; 8]> for Response {
     type Error = crate::error::Error;
 
     fn try_from(value: &[u8; 8]) -> Result<Self, Self::Error> {
+        // Check if the body of the message is all zero
+        if value[1..8] == [0, 0, 0, 0, 0, 0, 0] {
+            return Err(crate::error::Error::MessageBodyAllZero);
+        }
+
         match value[0] {
             0x80 => Ok(Response::MotorOff(value.try_into()?)),
             0x81 => Ok(Response::MotorOn(value.try_into()?)),

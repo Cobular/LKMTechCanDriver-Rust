@@ -131,64 +131,84 @@ impl MgMotor {
 
                         let data: &[u8; 8] = data.try_into().unwrap();
 
-                        if let Ok(message) = messages::Response::try_from(data) {
-                            let mut motor_data = MotorData::new(gear_ratio);
+                        match messages::Response::try_from(data) {
+                            Ok(message) => {
+                                let mut motor_data = MotorData::new(gear_ratio);
 
-                            if let Some(temp) = message.temp() {
-                                motor_data.cur_temp = Some(temp);
+                                if let Some(temp) = message.temp() {
+                                    if temp == 0 {
+                                        // Print the message type
+                                        // println!("Zero message type: {:?}", message);
+                                        continue;
+                                    }
+                                    motor_data.cur_temp = Some(temp);
+                                }
+
+                                match message {
+                                    messages::Response::TorqueClosedLoop(closedloop_message) => {
+                                        // If temp is zero, don't do anything
+                                        if closedloop_message.motor_temp == 0 {
+                                            continue;
+                                        }
+
+                                        // Motor torque current value iq,int16_t, range is -2048~2048, motor actual torque current range is-33A~33A.
+                                        motor_data.cur_torque_current = Some(
+                                            closedloop_message.torque_current_iq as f32 / 2048.0
+                                                * 33.0,
+                                        );
+
+                                        // Motor speed value, f32, degrees per second pre gearbox.
+                                        motor_data.cur_speed = Some(
+                                            closedloop_message.speed as f32 / gear_ratio as f32,
+                                        );
+
+                                        // Motor encoder position, u64, range is 0~65535(keeping high 16bit, Omit the lower 2 bit).
+                                        motor_data.cur_encoder_pos =
+                                            Some(closedloop_message.encoder_position as u64);
+                                    }
+                                    messages::Response::ReadEncoder(read_encoder_message) => {
+                                        motor_data.cur_encoder_pos =
+                                            Some(read_encoder_message.encoder as u64);
+                                    }
+                                    messages::Response::ReadState1(
+                                        read_motor_state1_and_error_state_message,
+                                    ) => {
+                                        motor_data.voltage = Some(
+                                            read_motor_state1_and_error_state_message.voltage
+                                                as i16,
+                                        );
+                                    }
+                                    messages::Response::ReadState3(
+                                        read_motor_state1_and_error_state_message,
+                                    ) => {
+                                        motor_data.a_phase_current = Some(
+                                            read_motor_state1_and_error_state_message
+                                                .a_phase_current,
+                                        );
+                                        motor_data.b_phase_current = Some(
+                                            read_motor_state1_and_error_state_message
+                                                .b_phase_current,
+                                        );
+                                        motor_data.c_phase_current = Some(
+                                            read_motor_state1_and_error_state_message
+                                                .c_phase_current,
+                                        );
+                                    }
+                                    messages::Response::MultiAngle(multi_angle_message) => {
+                                        motor_data.cur_angle = Some(multi_angle_message.angle);
+                                    }
+                                    _ => (),
+                                }
+
+                                match tx.send(motor_data) {
+                                    Ok(_) => (),
+                                    Err(e) => println!("Error sending message: {:?}", e),
+                                }
                             }
-
-                            match message {
-                                messages::Response::TorqueClosedLoop(closedloop_message) => {
-                                    // Motor torque current value iq,int16_t, range is -2048~2048, motor actual torque current range is-33A~33A.
-                                    motor_data.cur_torque_current = Some(
-                                        closedloop_message.torque_current_iq as f32 / 2048.0 * 33.0,
-                                    );
-
-                                    // Motor speed value, f32, degrees per second pre gearbox.
-                                    motor_data.cur_speed =
-                                        Some(closedloop_message.speed as f32 / gear_ratio as f32);
-
-                                    // Motor encoder position, u64, range is 0~65535(keeping high 16bit, Omit the lower 2 bit).
-                                    motor_data.cur_encoder_pos =
-                                        Some(closedloop_message.encoder_position as u64);
-                                }
-                                messages::Response::ReadEncoder(read_encoder_message) => {
-                                    motor_data.cur_encoder_pos =
-                                        Some(read_encoder_message.encoder as u64);
-                                }
-                                messages::Response::ReadState1(
-                                    read_motor_state1_and_error_state_message,
-                                ) => {
-                                    motor_data.voltage = Some(
-                                        read_motor_state1_and_error_state_message.voltage as i16,
-                                    );
-                                }
-                                messages::Response::ReadState3(
-                                    read_motor_state1_and_error_state_message,
-                                ) => {
-                                    motor_data.a_phase_current = Some(
-                                        read_motor_state1_and_error_state_message.a_phase_current,
-                                    );
-                                    motor_data.b_phase_current = Some(
-                                        read_motor_state1_and_error_state_message.b_phase_current,
-                                    );
-                                    motor_data.c_phase_current = Some(
-                                        read_motor_state1_and_error_state_message.c_phase_current,
-                                    );
-                                }
-                                messages::Response::MultiAngle(multi_angle_message) => {
-                                    motor_data.cur_angle = Some(multi_angle_message.angle);
-                                }
-                                _ => (),
+                            Err(Error::MessageBodyAllZero) => {}
+                            Err(_) => {
+                                println!("Invalid message: {:?}", data);
                             }
-
-                            match tx.send(motor_data) {
-                                Ok(_) => (),
-                                Err(e) => println!("Error sending message: {:?}", e),
-                            }
-                        } else {
-                            println!("Invalid message: {:?}", data);
                         }
                     }
                 } else {
@@ -253,7 +273,7 @@ impl MgMotor {
     /// This is a low level function, and should not be used unless you know what you are doing.
     /// Exists to simplify ID and CanFrame creation.
     fn send_message(&self, message: &DataArray) -> Result<()> {
-        println!("Sending message: {:?}", message);
+        // println!("Sending message: {:?}", message);
         let frame = CanFrame::new(self.id, message)
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Invalid frame"))
             .map_err(Error::StdioError)?;

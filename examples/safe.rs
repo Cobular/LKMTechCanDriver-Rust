@@ -7,7 +7,7 @@ use std::io::{self, BufRead};
 async fn main() -> io::Result<()> {
     let motor = MgMotor::new("can0", 0x2, 10)?;
 
-    motor.send_torque_closed_loop_control(0.0).await.unwrap();
+    motor.send_torque_closed_loop_control(0.0).unwrap();
 
     Ok(())
 }

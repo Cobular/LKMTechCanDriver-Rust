@@ -12,6 +12,8 @@ pub enum Error {
     InvalidResponseHeader,
     #[error("invalid response arguments")]
     InvalidResponseArguments,
+    #[error("message body all zero")]
+    MessageBodyAllZero,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

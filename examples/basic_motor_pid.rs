@@ -12,12 +12,12 @@ use thread_priority::*;
 use lkmtech_motor_driver::{MgMotor, MotorData};
 use pid::Pid;
 
-const POS_P_GAIN: f32 = 0.55;
-const POS_I_GAIN: f32 = 0.005;
+const POS_P_GAIN: f32 = 0.85;
+const POS_I_GAIN: f32 = 0.0;
 const POS_D_GAIN: f32 = 0.75;
 
-const VEL_P_GAIN: f32 = 0.08;
-const VEL_I_GAIN: f32 = 0.005;
+const VEL_P_GAIN: f32 = 1.1;
+const VEL_I_GAIN: f32 = 0.008;
 const VEL_D_GAIN: f32 = 0.15;
 
 const LOOP_HZ: f32 = 500.0;
@@ -29,19 +29,19 @@ fn main() {
 
     println!("Basic Motor PID Starting with params: Ppos: {}, Ipos: {}, Dpos: {}, Pvel: {}, Ivel: {}, Dvel: {}", POS_P_GAIN, POS_I_GAIN, POS_D_GAIN, VEL_P_GAIN, VEL_I_GAIN, VEL_D_GAIN);
 
-    let mut position_controller: Pid<f32> = Pid::new(0.0, 100.0);
-    position_controller.p(POS_P_GAIN / POST_SCALER, 100.0);
+    let mut position_controller: Pid<f32> = Pid::new(0.0, 180.0);
+    position_controller.p(POS_P_GAIN / POST_SCALER, 180.0);
     position_controller.i(POS_I_GAIN / POST_SCALER, 3.0);
     position_controller.d(POS_D_GAIN / POST_SCALER, 100.0);
 
-    let mut velocity_controller: Pid<f32> = Pid::new(0.0, 100.0);
+    let mut velocity_controller: Pid<f32> = Pid::new(0.0, 32.0);
     velocity_controller.p(VEL_P_GAIN / POST_SCALER, 100.0);
-    velocity_controller.i(VEL_I_GAIN / POST_SCALER, 3.0);
+    velocity_controller.i(VEL_I_GAIN / POST_SCALER, 5.0);
     velocity_controller.d(VEL_D_GAIN / POST_SCALER, 100.0);
 
     let motor = MgMotor::new("can0", 0x2, 10).unwrap();
 
-    let motor_data = Arc::new(RwLock::new(MotorData::new_initalized(10)));
+    let motor_data = Arc::new(RwLock::new(MotorData::new(10)));
 
     let reciever = motor.subscribe();
     let motor_data2 = motor_data.clone();
@@ -83,9 +83,9 @@ fn main() {
     });
 
     // Sleep for 5 seconds to let the motor data update
-    thread::sleep(Duration::from_secs(5));
+    thread::sleep(Duration::from_secs(1));
 
-    let mut target_position = 270.0;
+    let mut target_position = 90.0;
 
     let _reciever = motor.subscribe();
 
@@ -98,9 +98,7 @@ fn main() {
         let now = Instant::now();
         if now < next_tick {
             // Sleep until the next tick
-            println!("Sleeping for: {:?}", next_tick - now);
             thread::sleep(next_tick - now);
-            println!("Waking up");
         }
         last_tick = next_tick;
 
@@ -110,7 +108,7 @@ fn main() {
                 if line.trim() == "n" && iters < 20 {
                     iters += 1;
                     // Set target position to a random value within a range of 90 deg
-                    target_position += (2.0 * (0.5 - rand::random::<f32>()) * 60.0) + 45.0;
+                    target_position += 2.0 * (0.5 - rand::random::<f32>()) * 90.0;
                     println!("Setting target position to: {}", target_position);
                 } else {
                     println!("Safing the motor");
@@ -147,11 +145,11 @@ fn main() {
         let velocity_error = (-1.0 * velocity_setpoint.output) - velocity;
         let torque_setpoint = velocity_controller.next_control_output(velocity_error);
 
-        println!("{}", elapsed);
+        // println!("{}", elapsed);
 
         // Write the data to the CSV file
         let data = format!(
-            "{},{},{},{},{},{},{},{}\n",
+            "{:.32},{:.32},{:.32},{:.32},{:.32},{:.32},{:.32},{:.32}\n",
             elapsed,
             position,
             velocity,
@@ -168,22 +166,6 @@ fn main() {
             .send_torque_closed_loop_control(-1.0 * torque_setpoint.output)
             .unwrap();
 
-        println!("Sent torque command");
-
         motor.refresh().unwrap();
-
-        println!("Refreshed");
     }
-
-    // loop {
-    //     // Calculate the next tick time
-    //     let next_tick = last_tick + Duration::from_secs_f32(1.0 / LOOP_HZ);
-    //     let now = Instant::now();
-    //     if now < next_tick {
-    //         // Sleep until the next tick
-    //         thread::sleep(next_tick - now);
-    //     }
-    //     last_tick = next_tick;
-
-    // }
 }
