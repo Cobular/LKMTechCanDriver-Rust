@@ -19,3 +19,4 @@ tokio-stream = { version = "0.1.14", features = ["full"] }
 
 [dev-dependencies]
 pid = "4.0.0"
+tch = { version = "0.15.0", features = ["download-libtorch"] }
