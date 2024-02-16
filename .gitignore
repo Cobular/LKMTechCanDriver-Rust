@@ -2,3 +2,4 @@
 /Cargo.lock
 /venv/
 *.txt
+!requirements.txt

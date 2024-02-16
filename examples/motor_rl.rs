@@ -11,151 +11,162 @@ use thread_priority::*;
 
 use lkmtech_motor_driver::{MgMotor, MotorData};
 
+use ndarray::{Array2, Array1};
+use ort::{GraphOptimizationLevel, Session};
+
+const TORQUE_CURRENT_FACTOR: f32 = 1.0 / 33.0;
+
+const CTRL_LOOP_HZ: f32 = 25.0;
 const LOOP_HZ: f32 = 500.0;
 
+const LOOP_SKIP: u32 = (LOOP_HZ / CTRL_LOOP_HZ) as u32;
 
-fn main() {
+fn wait_for_next_loop(last_tick: Instant, loop_hz: f32) {
+    let next_tick = last_tick + Duration::from_secs_f32(1.0 / loop_hz);
+    let now = Instant::now();
+    if now < next_tick {
+        // Sleep until the next tick
+        thread::sleep(next_tick - now);
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(set_current_thread_priority(ThreadPriority::Max).is_ok());
 
-    // let motor = MgMotor::new("can0", 0x2, 10).unwrap();
+    let motor = MgMotor::new("can0", 0x2, 10).unwrap();
 
     // Model is a 3, 64, 64, 1 neural network
-    // With the 64 64 hidden layers wrapped in an lstm with a cell size of 256
-    let model = tch::CModule::load("model.pt").unwrap();
+    let model = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(4)?
+        .with_model_from_file("model.onnx")?;
 
-    // Observation space is 3 inputs
-    let observation_tensor = tch::Tensor::of_slice(&[0.0, 0.0, 0.0]);
+    let state_ins = Array1::<f32>::from_shape_vec(1, vec![0.0; 1])?;
 
-    // Get the action tensor from the model
-    let action_tensor = model.forward_ts(&[observation_tensor]).unwrap();
+    let motor_data = Arc::new(RwLock::new(MotorData::new(10)));
 
-    // Get the action from the tensor
-    let action = action_tensor.double_value(&[0]);
-    println!("Action: {}", action);
+    let reciever = motor.subscribe();
+    let motor_data2 = motor_data.clone();
+    std::thread::spawn(move || {
+        let motor_data = motor_data2;
+        loop {
+            let data = reciever.recv().unwrap();
+            let motor_data = motor_data.write();
+            motor_data
+                .expect("Motor data write to be successful")
+                .update(data);
+            // println!("{:?}, {:?}", motor_data.angle_deg(), motor_data.speed_dps());
+        }
+    });
 
-    // let motor_data = Arc::new(RwLock::new(MotorData::new(10)));
+    motor.send_read_motor_state2().unwrap();
+    motor.refresh().unwrap();
 
-    // let reciever = motor.subscribe();
-    // let motor_data2 = motor_data.clone();
-    // std::thread::spawn(move || {
-    //     let motor_data = motor_data2;
-    //     loop {
-    //         let data = reciever.recv().unwrap();
-    //         let motor_data = motor_data.write();
-    //         motor_data
-    //             .expect("Motor data write to be successful")
-    //             .update(data);
-    //         // println!("{:?}, {:?}", motor_data.angle_deg(), motor_data.speed_dps());
-    //     }
-    // });
+    // Open a file in write mode, this will create the file if it does not exist, or truncate it if it does.
+    let file = File::create("/mnt/ramdisk/motor_data.csv").unwrap();
+    let mut writer = BufWriter::new(file);
+    // Write the CSV headers
+    writer.write_all(b"Time,Position,Velocity,Position Error,Velocity Setpoint,Velocity Error,Target Torque,Target Pos\n").unwrap();
 
-    // motor.send_read_motor_state2().unwrap();
-    // motor.refresh().unwrap();
+    // Set up mpsc channel for stdin input
+    let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
-    // // Open a file in write mode, this will create the file if it does not exist, or truncate it if it does.
-    // let file = File::create("/mnt/ramdisk/motor_data.csv").unwrap();
-    // let mut writer = BufWriter::new(file);
-    // // Write the CSV headers
-    // writer.write_all(b"Time,Position,Velocity,Position Error,Velocity Setpoint,Velocity Error,Target Torque,Target Pos\n").unwrap();
+    // Spawn a task to read from stdin and send to the channel
+    std::thread::spawn(move || {
+        let mut lines = io::BufReader::new(io::stdin()).lines();
+        while let Some(line) = lines.next() {
+            if let Ok(line) = line {
+                if let Err(e) = tx.send(line) {
+                    eprintln!("Failed to send line: {}", e);
+                    break;
+                }
+            }
+        }
+    });
 
-    // // Set up mpsc channel for stdin input
-    // let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
+    // Sleep for 1 seconds to let the motor data update
+    thread::sleep(Duration::from_secs(1));
 
-    // // Spawn a task to read from stdin and send to the channel
-    // std::thread::spawn(move || {
-    //     let mut lines = io::BufReader::new(io::stdin()).lines();
-    //     while let Some(line) = lines.next() {
-    //         if let Ok(line) = line {
-    //             if let Err(e) = tx.send(line) {
-    //                 eprintln!("Failed to send line: {}", e);
-    //                 break;
-    //             }
-    //         }
-    //     }
-    // });
+    let mut target_position = 180.0;
 
-    // // Sleep for 1 seconds to let the motor data update
-    // thread::sleep(Duration::from_secs(1));
+    let start_time = Instant::now();
+    let mut iters = 0;
+    let mut last_tick = start_time;
 
-    // let mut target_position = 180.0;
+    let mut loop_counter = 0;
 
-    // let start_time = Instant::now();
-    // let mut iters = 0;
-    // let mut last_tick = start_time;
+    loop {
+        // Non-blocking, check if there's any input from the channel
+        match rx.try_recv() {
+            Ok(line) => {
+                if line.trim() == "n" && iters < 20 {
+                    iters += 1;
+                    // Set target position to a random value within a range of 90 deg
+                    target_position += 2.0 * (0.5 - rand::random::<f32>()) * 90.0;
+                    println!("Setting target position to: {}", target_position);
+                } else {
+                    println!("Safing the motor");
+                    motor.send_torque_closed_loop_control(0.0).unwrap();
+                    break; // Exit the loop if "exit" command is received
+                }
+            }
+            Err(e) => {
+                if e != TryRecvError::Empty {
+                    eprintln!("Channel receive error: {}", e);
+                    break;
+                }
+                // No input available, continue with the loop
+            }
+        }
 
-    // loop {
-    //     let next_tick = last_tick + Duration::from_secs_f32(1.0 / LOOP_HZ);
-    //     let now = Instant::now();
-    //     if now < next_tick {
-    //         // Sleep until the next tick
-    //         thread::sleep(next_tick - now);
-    //     }
-    //     last_tick = next_tick;
+        // Now, wait the remainder of the loop time
+        wait_for_next_loop(last_tick, CTRL_LOOP_HZ);
 
-    //     // Non-blocking check for newline input from stdin
-    //     match rx.try_recv() {
-    //         Ok(line) => {
-    //             if line.trim() == "n" && iters < 20 {
-    //                 iters += 1;
-    //                 // Set target position to a random value within a range of 90 deg
-    //                 target_position += 2.0 * (0.5 - rand::random::<f32>()) * 90.0;
-    //                 println!("Setting target position to: {}", target_position);
-    //             } else {
-    //                 println!("Safing the motor");
-    //                 motor.send_torque_closed_loop_control(0.0).unwrap();
-    //                 break; // Exit the loop if "exit" command is received
-    //             }
-    //         }
-    //         Err(e) => {
-    //             if e != TryRecvError::Empty {
-    //                 eprintln!("Channel receive error: {}", e);
-    //                 break;
-    //             }
-    //             // No input available, continue with the loop
-    //         }
-    //     }
+        // Need to decide if a loop is skipped or not
+        loop_counter += 1;
+        if loop_counter % LOOP_SKIP != 0 {
+            continue;
+        }
 
-    //     let elapsed = start_time.elapsed().as_secs_f32();
+        let elapsed = start_time.elapsed().as_secs_f32();
 
-    //     let motor_data = motor_data.read().unwrap().to_owned();
+        let motor_data = motor_data.read().unwrap().to_owned();
 
-    //     let position = motor_data.angle_deg().unwrap() as f32;
-    //     let velocity = motor_data.speed_dps().unwrap() as f32;
+        let position = motor_data.angle_deg().unwrap();
+        let velocity = motor_data.speed_dps().unwrap();
+        let torque = motor_data.cur_torque_current.unwrap() / TORQUE_CURRENT_FACTOR;
 
-    //     // println!("Position: {}, Velocity: {}", position, velocity);
+        let input = Array2::<f32>::from_shape_vec((1, 3), vec![position, velocity, torque])?;
 
-    //     let position_error = target_position - position;
+        let outputs = model.run(ort::inputs!["obs" => input, "state_ins" => state_ins.clone()]?)?;
 
-    //     // println!("Position error: {}", position_error);
+        // Get the action from the tensor
+        let action = outputs["output"].extract_tensor::<f32>()?.view().t().to_owned();
+        // Pull just the mean out of the action (the first item)
+        // let action = action[0];
+        println!("Elapsed: {}, Action: {}", elapsed, action);
 
-    //     let velocity_setpoint = position_controller.next_control_output(position_error);
+        // Write the data to the CSV file
+        // let data = format!(
+        //     "{:.32},{:.32},{:.32},{:.32},{:.32},{:.32},{:.32},{:.32}\n",
+        //     elapsed,
+        //     position,
+        //     velocity,
+        //     position_error,
+        //     velocity_setpoint.output,
+        //     velocity_error,
+        //     torque_setpoint.output,
+        //     target_position
+        // );
+        // writer.write_all(data.as_bytes()).unwrap();
 
-    //     // println!("Velocity Setpoint: {}", velocity_setpoint.output);
+        // It was going the wrong way :C
+        // motor
+        //     .send_torque_closed_loop_control(-1.0 * torque_setpoint.output)
+        //     .unwrap();
 
-    //     let velocity_error = (-1.0 * velocity_setpoint.output) - velocity;
-    //     let torque_setpoint = velocity_controller.next_control_output(velocity_error);
+        motor.refresh().unwrap();
+    }
 
-    //     // println!("{}", elapsed);
-
-    //     // Write the data to the CSV file
-    //     let data = format!(
-    //         "{:.32},{:.32},{:.32},{:.32},{:.32},{:.32},{:.32},{:.32}\n",
-    //         elapsed,
-    //         position,
-    //         velocity,
-    //         position_error,
-    //         velocity_setpoint.output,
-    //         velocity_error,
-    //         torque_setpoint.output,
-    //         target_position
-    //     );
-    //     writer.write_all(data.as_bytes()).unwrap();
-
-    //     // It was going the wrong way :C
-    //     motor
-    //         .send_torque_closed_loop_control(-1.0 * torque_setpoint.output)
-    //         .unwrap();
-
-    //     motor.refresh().unwrap();
-    // }
+    Ok(())
 }

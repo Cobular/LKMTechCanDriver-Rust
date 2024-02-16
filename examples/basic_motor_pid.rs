@@ -93,6 +93,9 @@ fn main() {
     let mut iters = 0;
     let mut last_tick = start_time;
 
+    // Track rolling average velocity
+    let mut avg_velocity = 0.0;
+
     loop {
         let next_tick = last_tick + Duration::from_secs_f32(1.0 / LOOP_HZ);
         let now = Instant::now();
@@ -131,6 +134,15 @@ fn main() {
 
         let position = motor_data.angle_deg().unwrap() as f32;
         let velocity = motor_data.speed_dps().unwrap() as f32;
+
+        // avg_velocity = avg_velocity * 0.9 + velocity * 0.1;
+
+        // Safe the robot if the velocity is too high
+        if velocity > 100.0 {
+            println!("Safing the motor");
+            motor.send_torque_closed_loop_control(0.0).unwrap();
+            break;
+        }
 
         // println!("Position: {}, Velocity: {}", position, velocity);
 

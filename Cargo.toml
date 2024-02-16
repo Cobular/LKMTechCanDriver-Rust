@@ -9,6 +9,7 @@ edition = "2021"
 crossbeam-channel = "0.5.11"
 futures = "0.3.30"
 futures-util = "0.3.30"
+ndarray = "0.15.6"
 rand = "0.8.5"
 serde = { version = "1.0.196", features = ["derive"] }
 socketcan = { version = "3.3.0", features = ["anyhow", "tokio"] }
@@ -19,4 +20,4 @@ tokio-stream = { version = "0.1.14", features = ["full"] }
 
 [dev-dependencies]
 pid = "4.0.0"
-tch = { version = "0.15.0", features = ["download-libtorch"] }
+ort = "2.0.0-alpha.4"
