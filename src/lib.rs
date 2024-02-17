@@ -157,6 +157,13 @@ impl MgMotor {
                                                 * 33.0,
                                         );
 
+                                        // println!(
+                                        //     "Raw torque: {:?}, Torque current: {:?}",
+                                        //     closedloop_message.torque_current_iq,
+                                        //     motor_data.cur_torque_current
+                                        // );
+
+
                                         // Motor speed value, f32, degrees per second pre gearbox.
                                         motor_data.cur_speed = Some(
                                             closedloop_message.speed as f32 / gear_ratio as f32,

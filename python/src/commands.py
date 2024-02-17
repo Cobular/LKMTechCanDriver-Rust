@@ -16,6 +16,20 @@ class OpenLoopControl:
         return bytes(arr)
     
 @dataclass
+class SpeedClosedLoopControl:
+    speed_dps: float
+
+    def to_data_array(self) -> bytes:
+        arr = bytearray([0xA2, 0, 0, 0, 0, 0, 0, 0])
+        speed = int(self.speed_dps * 100.0 * 10.0)
+        arr[4] = speed & 0xFF
+        arr[5] = (speed >> 8) & 0xFF
+        arr[6] = (speed >> 16) & 0xFF
+        arr[6] = (speed >> 16) & 0xFF
+        arr[7] = (speed >> 24) & 0xFF
+        return bytes(arr)
+    
+@dataclass
 class ReadMotorState2:
     def to_data_array(self) -> bytes:
         return bytes([0x9C, 0, 0, 0, 0, 0, 0, 0])
@@ -27,7 +41,7 @@ class TorqueClosedLoopControl:
     def to_data_array(self) -> bytes:
         # Placeholder for conversion logic
         torque_bytes = int(self.torque * 2048).to_bytes(2, byteorder='little', signed=True)
-        return bytes([0xA1, 0, 0, 0]) + torque_bytes + bytes(4)
+        return bytes([0xA1, 0, 0, 0]) + torque_bytes + bytes(2)
     
 @dataclass
 class MotorOnCommand:

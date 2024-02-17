@@ -1,22 +1,23 @@
 import can
-from python.src.commands import MotorOffCommand, MotorOnCommand, MotorStopCommand, OpenLoopControl, TorqueClosedLoopControl, ReadMotorState2, ReadMotorState1AndErrorState, ReadMultiAngleLoop
+from commands import MotorOffCommand, MotorOnCommand, MotorStopCommand, OpenLoopControl, SpeedClosedLoopControl, TorqueClosedLoopControl, ReadMotorState2, ReadMotorState1AndErrorState, ReadMultiAngleLoop
 import threading
 from typing import Callable
 
-from python.src.messges import parse_response
+from messges import Messages, parse_response
 
 
 class Motor:
-    def __init__(self, channel: str, bitrate: int = 500000, motor_id: int = 2):
+    def __init__(self, channel: str, bitrate: int = 500000, motor_id: int = 2, on_message_received: Callable[[Messages], None] = lambda msg: None):
         self.bus = can.interface.Bus(
             channel=channel, bustype="socketcan", bitrate=bitrate
         )
         self.motor_id = motor_id
         self.thread = threading.Thread(target=self.listen_for_responses, daemon=True)
-        self.on_message_received: Callable[[can.Message], None] = lambda msg: None
-
+        self.thread.start()
+        self.on_message_received: Callable[[Messages], None] = on_message_received
 
     def send_command(self, command):
+        # print(f"Sending command: {command}")
         msg = can.Message(
             arbitration_id=0x140 + self.motor_id,
             data=command.to_data_array(),
@@ -26,7 +27,7 @@ class Motor:
 
 
     def listen_for_responses(self):
-        while self.running:
+        while True:
             message = self.bus.recv(timeout=1.0)  # Adjust timeout as needed
             if message:
                 self.process_message(message)
@@ -34,7 +35,6 @@ class Motor:
     def process_message(self, message: can.Message):
         # Placeholder for message processing logic
         # This method should be customized based on how you want to handle incoming messages
-        print(f"Received message: {message}")
         parsed_message = parse_response(message.data)
         self.on_message_received(parsed_message)
 
@@ -80,5 +80,8 @@ class Motor:
         command = ReadMultiAngleLoop()
         self.send_command(command)
 
-    
+    def send_speed_closed_loop(self, speed_dps: float):
+        command = SpeedClosedLoopControl(speed_dps)
+        self.send_command(command)
+
 

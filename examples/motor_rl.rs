@@ -14,7 +14,7 @@ use lkmtech_motor_driver::{MgMotor, MotorData};
 use ndarray::{Array2, Array1};
 use ort::{GraphOptimizationLevel, Session};
 
-const TORQUE_CURRENT_FACTOR: f32 = 1.0 / 33.0;
+const TORQUE_CURRENT_FACTOR: f32 = 22.0;
 
 const CTRL_LOOP_HZ: f32 = 25.0;
 const LOOP_HZ: f32 = 500.0;
@@ -120,7 +120,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Now, wait the remainder of the loop time
-        wait_for_next_loop(last_tick, CTRL_LOOP_HZ);
+        wait_for_next_loop(last_tick, LOOP_HZ);
+        last_tick = Instant::now();
 
         // Need to decide if a loop is skipped or not
         loop_counter += 1;
@@ -132,37 +133,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let motor_data = motor_data.read().unwrap().to_owned();
 
-        let position = motor_data.angle_deg().unwrap();
-        let velocity = motor_data.speed_dps().unwrap();
-        let torque = motor_data.cur_torque_current.unwrap() / TORQUE_CURRENT_FACTOR;
+        let position_rad = motor_data.angle_deg().unwrap() * std::f32::consts::PI / 180.0;
+        let velocity_rad_p_s = motor_data.speed_dps().unwrap() * std::f32::consts::PI / 180.0;
+        let torque = motor_data.cur_torque_current.unwrap() / 33.0;
 
-        let input = Array2::<f32>::from_shape_vec((1, 3), vec![position, velocity, torque])?;
+        let input = Array2::<f32>::from_shape_vec((1, 3), vec![velocity_rad_p_s, position_rad, torque])?;
 
-        let outputs = model.run(ort::inputs!["obs" => input, "state_ins" => state_ins.clone()]?)?;
+        let outputs = model.run(ort::inputs!["obs" => input.clone(), "state_ins" => state_ins.clone()]?)?;
 
         // Get the action from the tensor
         let action = outputs["output"].extract_tensor::<f32>()?.view().t().to_owned();
-        // Pull just the mean out of the action (the first item)
-        // let action = action[0];
-        println!("Elapsed: {}, Action: {}", elapsed, action);
+        let action_slice = action.as_slice().unwrap();
+
+        println!("Action: {:?}", action_slice[0]);
 
         // Write the data to the CSV file
-        // let data = format!(
-        //     "{:.32},{:.32},{:.32},{:.32},{:.32},{:.32},{:.32},{:.32}\n",
-        //     elapsed,
-        //     position,
-        //     velocity,
-        //     position_error,
-        //     velocity_setpoint.output,
-        //     velocity_error,
-        //     torque_setpoint.output,
-        //     target_position
-        // );
-        // writer.write_all(data.as_bytes()).unwrap();
+        let data = format!(
+            "{:.32},{:.32},{:.32},{:.32},{:?}\n",
+            elapsed,
+            position_rad,
+            velocity_rad_p_s,
+            input,
+            action_slice,
+        );
+        writer.write_all(data.as_bytes()).unwrap();
 
         // It was going the wrong way :C
         // motor
-        //     .send_torque_closed_loop_control(-1.0 * torque_setpoint.output)
+        //     .send_torque_closed_loop_control(action_slice[0] * TORQUE_CURRENT_FACTOR)
         //     .unwrap();
 
         motor.refresh().unwrap();

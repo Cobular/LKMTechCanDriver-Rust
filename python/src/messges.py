@@ -2,6 +2,8 @@ import struct
 from dataclasses import dataclass
 from typing import Optional, Union
 
+Messages = "Union[OpenLoopResponse, ClosedLoopResponse, MotorOffResponse, MotorOnResponse, MotorStopResponse, ReadEncoderResponse, ReadState1Response, ReadState3Response, MultiAngleResponse]"
+
 @dataclass
 class EmptyResponse:
     pass
@@ -19,6 +21,12 @@ class ClosedLoopResponse:
     torque_current_iq: int
     speed: int
     encoder_position: int
+
+    def speed_dps(self):
+        return self.speed / 10.0
+    
+    def torque_nm(self):
+        return self.torque_current_iq * 33 / 2048
 
 @dataclass
 class MotorOffResponse:
@@ -59,8 +67,11 @@ class ReadState3Response:
 class MultiAngleResponse:
     angle: int
 
+    def angle_deg(self):
+        return self.angle / 100.0 / 10
 
-def parse_response(data: bytes) -> Optional[Union[OpenLoopResponse, ClosedLoopResponse, MotorOffResponse, MotorOnResponse, MotorStopResponse, ReadEncoderResponse, ReadState1Response, ReadState3Response, MultiAngleResponse]]:
+
+def parse_response(data: bytes) -> Optional[Messages]:
     if len(data) != 8:
         raise ValueError("Invalid data length")
 
@@ -75,14 +86,18 @@ def parse_response(data: bytes) -> Optional[Union[OpenLoopResponse, ClosedLoopRe
         motor_temp, output_power, speed, encoder_position = struct.unpack('<BHHH', data[1:])
         return OpenLoopResponse(motor_temp, output_power, speed, encoder_position)
     elif command_byte in range(0xA1, 0xA9) or command_byte == 0x9C:
-        motor_temp, torque_current_iq, speed, encoder_position = struct.unpack('<BhHH', data[1:])
+        motor_temp, torque_current_iq, speed, encoder_position = struct.unpack('<BhhH', data[1:])
         return ClosedLoopResponse(motor_temp, torque_current_iq, speed, encoder_position)
     elif command_byte == 0x90:
         encoder, encoder_raw, encoder_offset = struct.unpack('<HHH', data[1:7])
         return ReadEncoderResponse(encoder, encoder_raw, encoder_offset)
     elif command_byte == 0x92:
-        # Assuming the angle is stored in the last 6 bytes, similar to the Rust code
-        angle = struct.unpack('<q', data[1:] + b'\x00\x00')[0]  # Sign-extend the last byte
+        rest_data = data[1:]
+        assert len(rest_data) == 7
+        # Assuming the angle is stored in the last 7 bytes, similar to the Rust code
+        extended_byte = b'\xFF' if data[6] & 0x80 else b'\x00'
+        rest_data += extended_byte
+        angle = struct.unpack('<q', rest_data)[0]
         return MultiAngleResponse(angle)
     elif command_byte == 0x9A:
         temp, voltage = struct.unpack('<BxH', data[1:5])

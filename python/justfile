@@ -1,0 +1,9 @@
+safe:
+  python src/basic_safe.py
+
+speed:
+  python src/basic_speed_control.py
+
+rl:
+  python src/rl.py
+
